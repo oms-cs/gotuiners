@@ -1,88 +1,148 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 
+	"github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 type model struct {
-	response string
-	err      error
+	table         table.Model
+	allContainers []Container
+	loading       bool
+	err           error
 }
 
+type Container struct {
+	Name   string `json:"Names"`
+	ID     string `json:"ID"`
+	Image  string `json:"Image"`
+	Status string `json:"Status"`
+	State  string `json:"State"`
+}
+
+var baseStyle = lipgloss.NewStyle().
+	Foreground(lipgloss.Color("99")).
+	BorderStyle(lipgloss.RoundedBorder()).
+	BorderForeground(lipgloss.Color("29"))
+
 func (m model) Init() tea.Cmd {
-	return executeCommand
+	return getContainers
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+
 	switch msg := msg.(type) {
+	case ContainerMsg:
+		rows := make([]table.Row, 0, len(msg))
 
-	case statusMsg:
-		m.response = string(msg)
-		return m, tea.Quit
-
-	case errMsg:
-		// There was an error. Note it in the model. And tell the runtime
-		// we're done and want to quit.
-		m.err = msg
-		return m, tea.Quit
-
-	// check if any key was pressed
+		for _, ctr := range msg {
+			rows = append(rows, table.Row{ctr.Name, ctr.ID, ctr.Image, ctr.Status, ctr.State})
+		}
+		m.allContainers = msg
+		m.table.SetRows(rows)
 	case tea.KeyMsg:
-		//if it was key press then do key press actions here
-		switch msg.String() {
-		case tea.KeyCtrlC.String():
+		switch msg.Type.String() {
+		case tea.KeyCtrlC.String(), tea.KeyEsc.String():
+			return m, tea.Quit
+		case "enter":
+			index := m.table.Cursor()
+			selectedContainer := m.allContainers[index]
+			// Now you have the full struct with all hidden fields
+			return m, tea.Batch(
+				tea.Printf("Selected Name: %s, Image: %s", selectedContainer.Name, selectedContainer.Image),
+			)
+		}
+		if len(msg.Runes) > 0 && msg.Runes[0] == 'q' {
 			return m, tea.Quit
 		}
 	}
-	return m, nil
+
+	m.table, cmd = m.table.Update(msg)
+	return m, cmd
 }
 
 func (m model) View() string {
-	if m.err != nil {
-		return fmt.Sprintf("\nWe had some trouble: %v\n\n", m.err)
-	}
-
-	// Tell the user we're doing something.
-	s := "Loading ...\n"
-
-	// When the server responds with a status, add it to the current line.
-	if len(m.response) > 0 {
-		s += fmt.Sprintf("%s", m.response)
-	}
-
-	// Send off whatever we came up with above for rendering.
-	return "\n" + s + "\n\n"
+	return "\n  Docker Containers\n\n" + baseStyle.Render(m.table.View()) + "\n  press q to quit\n"
 }
 
-func executeCommand() tea.Msg {
+func getContainers() tea.Msg {
+	jsonString, err := executeCommand()
+	if err != nil {
+		return errMsg{err}
+	}
+	lines := strings.Split(strings.TrimSpace(string(jsonString)), "\n")
+	var containers []Container
 
-	cmd := exec.Command("docker", "ps")
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		var c Container
+		if err := json.Unmarshal([]byte(line), &c); err != nil {
+			fmt.Println("Error parsing JSON:", err)
+			continue
+		}
+		containers = append(containers, c)
+	}
+
+	return ContainerMsg(containers)
+}
+
+func executeCommand() (string, error) {
+
+	cmd := exec.Command("docker", "ps", "--format", "json")
 	res, err := cmd.Output()
 
 	if err != nil {
 		// There was an error making our request. Wrap the error we received
 		// in a message and return it.
-		return errMsg{err}
+		return "", err
 	}
 	// We received a response from the server. Return the HTTP status code
 	// as a message.
-	return statusMsg(string(res))
+	return string(res), nil
 }
 
-type statusMsg string
-
 type errMsg struct{ err error }
+
+type ContainerMsg []Container
 
 // For messages that contain errors it's often handy to also implement the
 // error interface on the message.
 func (e errMsg) Error() string { return e.err.Error() }
 
+func getTable() table.Model {
+	columns := []table.Column{
+		{Title: "Name", Width: 20},
+		{Title: "ID", Width: 20},
+		{Title: "Image", Width: 20},
+		{Title: "Status", Width: 20},
+		{Title: "State", Width: 20},
+	}
+	t := table.New(
+		table.WithColumns(columns),
+		table.WithFocused(true),
+		table.WithHeight(10),
+	)
+	// Apply some Bubblegum styling
+	s := table.DefaultStyles()
+	s.Header = s.Header.BorderStyle(lipgloss.NormalBorder()).BorderBottom(true).Bold(true)
+	s.Selected = s.Selected.Foreground(lipgloss.Color("229")).Background(lipgloss.Color("240")).Bold(false)
+	t.SetStyles(s)
+	return t
+}
+
 func main() {
-	p := tea.NewProgram(model{})
+	t := getTable()
+	p := tea.NewProgram(model{table: t})
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Alas, there's been an error: %v", err)
 		os.Exit(1)
