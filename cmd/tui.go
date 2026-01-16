@@ -36,6 +36,12 @@ var (
 	tableStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("241"))
+
+	helpStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("245")).
+			Italic(true).
+			MarginTop(1).
+			PaddingLeft(2)
 )
 
 type Model struct {
@@ -43,6 +49,8 @@ type Model struct {
 	images     table.Model
 	details    viewport.Model
 	focused    status
+	width      int
+	height     int
 }
 
 type container struct {
@@ -67,7 +75,7 @@ func InitModel(width, height int) Model {
 	images := loadImages(leftWidth, h)
 	details := loadViewPoint(leftWidth, height-vPad)
 
-	return Model{containers: containers, images: images, focused: ctrs, details: details}
+	return Model{containers: containers, images: images, focused: ctrs, details: details, width: width, height: height}
 }
 
 func executeShellCommand(commands ...string) string {
@@ -83,7 +91,7 @@ func executeShellCommand(commands ...string) string {
 }
 
 func getContainerList() []container {
-	val := executeShellCommand("ps", "--format", "json")
+	val := executeShellCommand("ps", "-a", "--format", "json")
 	containers := make([]container, 0, 10)
 
 	for line := range strings.SplitSeq(val, "\n") {
@@ -155,6 +163,17 @@ func loadImages(totalWidth, height int) table.Model {
 	t.SetRows(rows)
 	t.SetStyles(tableStyles())
 	return t
+}
+
+func (m *Model) reloadData(focused status) {
+	h := (m.height - vPad) / 2
+	w := (m.width - hPad) / 2
+	switch focused {
+	case ctrs:
+		m.containers = loadContainers(w, h)
+	case imgs:
+		m.images = loadImages(w, h)
+	}
 }
 
 func loadContainers(totalWidth, height int) table.Model {
@@ -238,6 +257,45 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.images.Focus()
 			}
 
+		case tea.KeyCtrlS.String():
+			switch m.focused {
+			case ctrs:
+				row := m.containers.SelectedRow()
+				id := row[0]
+				state := row[4] // Index 4 is 'State' (running/exited)
+
+				var action string
+				if state == "running" {
+					action = "stop"
+				} else {
+					action = "start"
+				}
+
+				// Provide immediate feedback in the details view
+				m.details.SetContent(fmt.Sprintf("Executing: docker %s %s...", action, id))
+
+				// Execute command
+				result := executeShellCommand(action, id)
+				m.details.SetContent(fmt.Sprintf("Success: Container %sed\n%s", action, result))
+
+				// Critical: Refresh data after the action
+				m.reloadData(ctrs)
+			}
+
+		case tea.KeyCtrlX.String():
+			switch m.focused {
+			case imgs:
+				row := m.images.SelectedRow()
+				if len(row) > 0 {
+					id := row[0]
+					m.details.SetContent(fmt.Sprintf("Attempting to delete image: %s...", id))
+					result := executeShellCommand("image", "rm", id)
+					m.details.SetContent(result)
+
+					m.reloadData(imgs)
+				}
+			}
+
 		case "enter":
 			switch m.focused {
 			case ctrs:
@@ -294,13 +352,28 @@ func (m Model) View() string {
 		),
 	)
 
-	return lipgloss.JoinHorizontal(lipgloss.Top,
+	mainContent := lipgloss.JoinHorizontal(lipgloss.Top,
 		leftElement,
 		lipgloss.JoinVertical(lipgloss.Left,
 			headerStyle.Render(" Details"),
 			dStyle.Render(m.details.View()),
 		),
 	)
+
+	// Create the Help Footer
+	var helpContent string
+
+	switch m.focused {
+	case ctrs:
+		helpContent = "↑/↓: Navigate • Enter: View Logs • Ctrl+S: Start/Stop • Tab: Switch Focus • q: Quit"
+	case imgs:
+		helpContent = "↑/↓: Navigate • Enter: View Logs • Ctrl+X: Remove Image • Tab: Switch Focus • q: Quit"
+	case details:
+		helpContent = "↑/↓: Scroll Logs • Tab: Switch Focus • q: Quit"
+	}
+	helpFooter := helpStyle.Render(helpContent)
+
+	return lipgloss.JoinVertical(lipgloss.Left, mainContent, helpFooter)
 }
 
 func main() {
