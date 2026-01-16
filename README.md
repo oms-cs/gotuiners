@@ -16,6 +16,8 @@ A lightweight, terminal-based dashboard for managing Docker containers and image
 | :--- | :--- |
 | `Tab` | Switch focus between Containers, Images, and Details |
 | `Enter` | Select an item to view Logs/Details |
+| `Ctrl+S` | Start/Stop Selected Container |
+| `Ctrl+X` | Remove Image |
 | `↑/↓` | Navigate through lists |
 | `j/k` | Scroll logs in the Details panel |
 | `q` / `Ctrl+C` | Quit Application |
