@@ -153,6 +153,7 @@ func loadImages(totalWidth, height int) table.Model {
 	}
 
 	t.SetRows(rows)
+	t.SetStyles(tableStyles())
 	return t
 }
 
@@ -175,6 +176,8 @@ func loadContainers(totalWidth, height int) table.Model {
 		table.WithFocused(true),
 	)
 
+	t.SetStyles(tableStyles())
+
 	rows := make([]table.Row, 0, len(containers))
 
 	for _, ctr := range containers {
@@ -195,6 +198,20 @@ func loadViewPoint(width, height int) viewport.Model {
 
 func (m Model) Init() tea.Cmd {
 	return nil
+}
+
+func tableStyles() table.Styles {
+	s := table.DefaultStyles()
+
+	s.Header = s.Header.
+		Foreground(lipgloss.Color("39")). // Hot Pink text
+		Bold(true)                        // Make the Pink headers pop
+
+	s.Selected = s.Selected.
+		Foreground(lipgloss.Color("42")).
+		Bold(true)
+
+	return s
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
