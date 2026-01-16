@@ -15,7 +15,7 @@ import (
 
 type status int
 
-const vPad = 5
+const vPad = 10
 const hPad = 10
 
 const (
@@ -189,7 +189,7 @@ func loadContainers(totalWidth, height int) table.Model {
 }
 
 func loadViewPoint(width, height int) viewport.Model {
-	v := viewport.New(width, height-2)
+	v := viewport.New(width, height-3)
 	v.SetContent("Select a container or image")
 	return v
 }
